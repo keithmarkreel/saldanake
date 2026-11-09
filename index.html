@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSV to JSON Transformer</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f24; --muted:#5f6772; --accent:#2563eb; --border:#d9dde3; --code:#0f172a; --codetext:#e2e8f0; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --card:#1d2026; --text:#eceff3; --muted:#9aa3af; --accent:#60a5fa; --border:#2e333b; --code:#0b0d11; --codetext:#e2e8f0; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.5; }
+  main { max-width:860px; margin:0 auto; padding:32px 20px 60px; }
+  header { margin-bottom:24px; }
+  h1 { margin:0 0 4px; font-size:1.6rem; }
+  .meta { color:var(--muted); margin:0; }
+  .meta strong { color:var(--text); }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:20px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  input[type=file] { flex:1; min-width:220px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:.95rem; cursor:pointer; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  pre { background:var(--code); color:var(--codetext); padding:16px; border-radius:8px; overflow:auto; max-height:460px; margin:12px 0 0; font-size:.85rem; }
+  .status { margin:10px 0 0; color:var(--muted); font-size:.9rem; }
+  .error { color:#dc2626; }
+  table { border-collapse:collapse; width:100%; font-size:.85rem; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:600; }
+  .scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>CSV to JSON Transformer</h1>
+    <p class="meta"><strong>Keith Mark P. Saldana</strong> &middot; Schedule: <strong>REPLACE WITH YOUR SCHEDULE (e.g. Mon/Wed 1:30&ndash;4:30 PM)</strong></p>
+  </header>
+
+  <section class="card">
+    <div class="row">
+      <input type="file" id="file" accept=".csv,text/csv">
+      <button id="convert" disabled>Convert</button>
+      <button id="copy" class="secondary" disabled>Copy</button>
+    </div>
+    <p class="status" id="status">Choose a CSV file (e.g. exercise_datamap.csv).</p>
+  </section>
+
+  <section class="card">
+    <strong>JSON output</strong>
+    <pre id="output">[]</pre>
+  </section>
+
+  <section class="card">
+    <strong>Data map</strong>
+    <div class="scroll">
+    <table>
+      <tr><th>CSV field</th><th>JSON field</th><th>Type</th><th>Rule</th></tr>
+      <tr><td>student_id</td><td>studentId</td><td>Integer</td><td>String to integer</td></tr>
+      <tr><td>first_name</td><td>firstName</td><td>String</td><td>Capitalize first letter</td></tr>
+      <tr><td>last_name</td><td>lastName</td><td>String</td><td>Capitalize first letter</td></tr>
+      <tr><td>course</td><td>program</td><td>String</td><td>Full program name</td></tr>
+      <tr><td>year_level</td><td>yearLevel</td><td>Integer</td><td>String to integer</td></tr>
+      <tr><td>email</td><td>emailAddress</td><td>String</td><td>Lowercase</td></tr>
+      <tr><td>tuition_balance</td><td>outstandingBalance</td><td>Number</td><td>Decimal, 2 places</td></tr>
+    </table>
+    </div>
+  </section>
+</main>
+
+<script>
+const PROGRAMS = {
+  BSIT: "Bachelor of Science in Information Technology",
+  BSCS: "Bachelor of Science in Computer Science"
+};
+
+const fileInput = document.getElementById("file");
+const convertBtn = document.getElementById("convert");
+const copyBtn = document.getElementById("copy");
+const output = document.getElementById("output");
+const statusEl = document.getElementById("status");
+
+let csvText = "";
+let jsonText = "";
+
+// Minimal CSV parser (handles quoted fields, commas in quotes, CRLF)
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  text = text.replace(/^\uFEFF/, "");
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') inQuotes = false;
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); field = "";
+      if (row.some(v => v.trim() !== "")) rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  row.push(field);
+  if (row.some(v => v.trim() !== "")) rows.push(row);
+  return rows;
+}
+
+const capitalize = s => {
+  s = (s || "").trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+function transformRow(r) {
+  const code = (r.course || "").trim();
+  const balance = parseFloat((r.tuition_balance || "0").replace(/,/g, ""));
+  return {
+    studentId: parseInt(r.student_id, 10),
+    firstName: capitalize(r.first_name),
+    lastName: capitalize(r.last_name),
+    program: PROGRAMS[code.toUpperCase()] || code,
+    yearLevel: parseInt(r.year_level, 10),
+    emailAddress: (r.email || "").trim().toLowerCase(),
+    outstandingBalance: Number((isNaN(balance) ? 0 : balance).toFixed(2))
+  };
+}
+
+// JSON.stringify drops trailing zeros (5000.00 -> 5000), so render balances with 2 decimals
+function toJsonText(records) {
+  const json = JSON.stringify(records, null, 2);
+  return json.replace(/("outstandingBalance": )(-?\d+(?:\.\d+)?)/g,
+    (_, k, n) => k + Number(n).toFixed(2));
+}
+
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.classList.toggle("error", !!isError);
+}
+
+fileInput.addEventListener("change", () => {
+  const f = fileInput.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    csvText = reader.result;
+    convertBtn.disabled = false;
+    setStatus("Loaded " + f.name + ". Click Convert.");
+  };
+  reader.readAsText(f);
+});
+
+convertBtn.addEventListener("click", () => {
+  try {
+    const rows = parseCSV(csvText);
+    if (rows.length < 2) throw new Error("CSV needs a header row and at least one data row.");
+    const headers = rows[0].map(h => h.trim());
+    const required = ["student_id","first_name","last_name","course","year_level","email","tuition_balance"];
+    const missing = required.filter(h => !headers.includes(h));
+    if (missing.length) throw new Error("Missing columns: " + missing.join(", "));
+    const records = rows.slice(1).map(cells => {
+      const obj = {};
+      headers.forEach((h, i) => obj[h] = cells[i] ?? "");
+      return transformRow(obj);
+    });
+    jsonText = toJsonText(records);
+    output.textContent = jsonText;
+    copyBtn.disabled = false;
+    setStatus("Converted " + records.length + " records.");
+  } catch (e) {
+    setStatus(e.message, true);
+  }
+});
+
+copyBtn.addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(jsonText); setStatus("Copied to clipboard."); }
+  catch { setStatus("Copy failed. Select the text manually.", true); }
+});
+</script>
+</body>
+</html>
